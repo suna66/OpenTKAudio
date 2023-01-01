@@ -26,7 +26,6 @@ namespace OpenTKTest
             string ext = Path.GetExtension(filename);
 
             float[] stream = null!;
-            byte[] byteStream = null!;
             if (ext == ".mp3" || ext == ".MP3")
             {
                 stream = p.LoadMP3(filename, out channels, out sampleRate);
@@ -37,15 +36,11 @@ namespace OpenTKTest
             }
             else if (ext == ".wav" || ext == ".WAV")
             {
-                byteStream = p.LoadWav(filename, out channels, out bitsPerSample, out sampleRate);
-                if (bitsPerSample == 24)
-                {
-                    stream = p.ConvertFloat32(byteStream);
-                }
+                stream = p.LoadWav(filename, out channels, out bitsPerSample, out sampleRate);
             }
             else
             {
-                Console.WriteLine("please select MP3 or Ogg file.");
+                Console.WriteLine("please select WAV, MP3 or Ogg file.");
                 return;
             }
 
@@ -55,14 +50,7 @@ namespace OpenTKTest
             Console.WriteLine($"bite per sample = {bitsPerSample}");
 
             p.InitAudio();
-            if (bitsPerSample == 8 || bitsPerSample == 16)
-            {
-                p.Play(byteStream, sampleRate, channels, bitsPerSample);
-            }
-            else
-            {
-                p.Play(stream, sampleRate, channels);
-            }
+            p.Play(stream, sampleRate, channels);
             p.Wait();
             p.Clean();
         }
@@ -129,7 +117,7 @@ namespace OpenTKTest
             return data;
         }
 
-        public byte[] LoadWav(string filename, out int _channels, out int _bitsPerSample, out int _sampleRate)
+        public float[] LoadWav(string filename, out int _channels, out int _bitsPerSample, out int _sampleRate)
         {
             using (BinaryReader reader = new BinaryReader(File.Open(filename, FileMode.Open)))
             {
@@ -182,36 +170,18 @@ namespace OpenTKTest
                         reader.ReadBytes(chunk_size);
                     }
                 }
-
-                return data;
-            }
-        }
-
-        public ALFormat GetALFormat(int channels, int bits)
-        {
-            if (channels == 1)
-            {
-                switch (bits)
+                if (_bitsPerSample == 8)
                 {
-                    case 8: return ALFormat.Mono8;
-                    case 16: return ALFormat.Mono16;
-                    case 24: return ALFormat.MonoFloat32Ext;
-                    default: throw new NotSupportedException("no supported format of bits per sample");
+                    return Convert8ToFloat32(data);
                 }
-            }
-            else if (channels == 2)
-            {
-                switch (bits)
+                else if (_bitsPerSample == 16)
                 {
-                    case 8: return ALFormat.Stereo8;
-                    case 16: return ALFormat.Stereo16;
-                    case 24: return ALFormat.StereoFloat32Ext;
-                    default: throw new NotSupportedException("no supported format of bits per sample");
+                    return Convert16ToFloat32(data);
                 }
-            }
-            else
-            {
-                throw new NotSupportedException($"no supported format of channels");
+                else
+                {
+                    return ConvertFloat32(data);
+                }
             }
         }
 
@@ -237,6 +207,47 @@ namespace OpenTKTest
             }
             return result_data;
         }
+
+        private float[] Convert16ToFloat32(byte[] data)
+        {
+            int data_index = 0;
+            int result_size = 0;
+            int result_index = 0;
+
+            result_size = (int)((data.Length / 2));
+            float[] result_data = new float[result_size];
+
+            while (data_index < data.Length)
+            {
+                byte c1 = data[data_index++];
+                byte c2 = data[data_index++];
+
+                int value = (int)(((c2 & 0x000000ff) << 8) | (c1 & 0x000000ff));
+                value = (int)((value & 0x0000ffff) | (((value & 0x8000) != 0) ? 0xffff0000 : 0x00000000));
+
+                result_data[result_index++] =  (float)value / 65535.0f;
+            }
+            return result_data;
+        }
+
+        private float[] Convert8ToFloat32(byte[] data)
+        {
+            int data_index = 0;
+            int result_size = 0;
+            int result_index = 0;
+
+            result_size = data.Length;
+            float[] result_data = new float[result_size];
+
+            while (data_index < data.Length)
+            {
+                byte c1 = data[data_index++];
+
+                int value = (int)c1 - 128; 
+                result_data[result_index++] =  (float)value / 128;
+            }
+            return result_data;
+        }
         
         private void Play(float[] stream, int sampleRate, int channels)
         {
@@ -249,16 +260,6 @@ namespace OpenTKTest
             }
 
             AL.BufferData(buffer, fmt, stream, sampleRate);
-            AL.Source(source, ALSourcei.Buffer, buffer);
-            AL.SourcePlay(source);
-        }
-
-        private void Play(byte[] stream, int sampleRate, int channels, int bitsPerSample)
-        {
-            buffer = AL.GenBuffer();
-            source = AL.GenSource();
-
-            AL.BufferData(buffer, GetALFormat(channels, bitsPerSample), stream, sampleRate);
             AL.Source(source, ALSourcei.Buffer, buffer);
             AL.SourcePlay(source);
         }
